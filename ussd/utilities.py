@@ -68,9 +68,9 @@ class YamlToGo:
         with open(file, 'r') as f:
             data = yaml.load(f, Loader=YamlIncludesLoader)
 
-        included_files = data.get('included')
+        included_files = data.get('includes')
         if included_files:
-            data.pop('included', None)
+            data.pop('includes', None)
             data.update(included_files)
         self.yaml = data
 
