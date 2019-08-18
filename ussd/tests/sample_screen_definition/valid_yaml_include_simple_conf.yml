@@ -1,0 +1,5 @@
+initial_screen:
+  type: initial_screen
+  next_screen: screen_one
+
+screen_one: !include valid_yaml_include_screen_one.yaml

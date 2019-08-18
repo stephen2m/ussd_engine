@@ -1,6 +1,14 @@
 import importlib
 import yaml
+import os.path
 from datetime import datetime
+
+from yaml.constructor import ConstructorError
+
+try:
+    from yaml import CLoader as Loader
+except ImportError:
+    from yaml import Loader
 
 date_format = "%Y-%m-%d %H:%M:%S.%f"
 
@@ -26,36 +34,69 @@ def string_to_datetime(date_str_obj: str):
     return datetime.strptime(date_str_obj, date_format)
 
 
+def extract_file(filename):
+    with open(filename, 'r') as f:
+        return yaml.load(f, YamlIncludesLoader)
+
+
+class YamlIncludesLoader(Loader):
+    """
+    YAML Loader with `!include` constructor
+    """
+
+    def __init__(self, stream):
+        super(YamlIncludesLoader, self).__init__(stream)
+        YamlIncludesLoader.add_constructor('!include', YamlIncludesLoader.include)
+
+    def include(self, node):
+        if isinstance(node, yaml.ScalarNode):
+            return extract_file(self.construct_scalar(node))
+
+        elif isinstance(node, yaml.SequenceNode):
+            data = {}
+            for filename in self.construct_sequence(node):
+                data.update(extract_file(filename))
+
+            return data
+
+        else:
+            raise ConstructorError("Error:: unrecognised node type in !include statement")
+
+
 class YamlToGo:
-    def __init__(self,file):
-        file = open(file)
-        self.yaml = yaml.load(file)
-        file.close()
+    def __init__(self, file):
+        with open(file, 'r') as f:
+            data = yaml.load(f, Loader=YamlIncludesLoader)
+
+        included_files = data.get('included')
+        if included_files:
+            data.pop('included', None)
+            data.update(included_files)
+        self.yaml = data
 
         self.count = 0
 
     def get_model_data(self):
         data = {}
         links = []
-        for index,value in enumerate(self.yaml):
-            data[value] = self.convert_screen(value,index)
+        for index, value in enumerate(self.yaml):
+            data[value] = self.convert_screen(value, index)
 
-        for index,value in enumerate(self.yaml):
-            links.extend(self.get_links(value,data))
+        for index, value in enumerate(self.yaml):
+            links.extend(self.get_links(value, data))
 
-        dataArray = []
-        dataArray.append(data.pop('initial_screen'))
+        dataArray = [data.pop('initial_screen')]
         dataArray.extend(list(data.values()))
 
-        return {'data':dataArray,'links':links}
+        return {'data': dataArray, 'links': links}
 
-    def get_text(self,text):
+    def get_text(self, text):
         if type(text) is str:
             return text
         else:
             return text['en']
 
-    def convert_screen(self,screen,key):
+    def convert_screen(self, screen, key):
         _data = {}
         name = screen
         screen = self.yaml[screen]
@@ -65,52 +106,51 @@ class YamlToGo:
 
         if type == 'initial_screen':
             _data['items'] = [
-                {'index':1,'portName':'out1','text':'Initial Screen'}
+                {'index': 1, 'portName': 'out1', 'text': 'Initial Screen'}
             ]
         elif type == 'input_screen':
             _data['items'] = [
-                {'index':'1','portName':'out1','text':self.get_text(screen['text'])}
+                {'index': '1', 'portName': 'out1', 'text': self.get_text(screen['text'])}
             ]
         elif type.endswith('http_screen'):
             _data['items'] = [
-                {'index':'1','portName':'out1','text':'Http Request Screen'}
+                {'index': '1', 'portName': 'out1', 'text': 'Http Request Screen'}
             ]
 
         elif type == 'menu_screen':
             _data['items'] = []
-            for index,value in enumerate(screen['options']):
+            for index, value in enumerate(screen['options']):
                 _data['items'].append({
-                    'index' : index+1,
-                    'text' : self.get_text(value['text']),
+                    'index': index + 1,
+                    'text': self.get_text(value['text']),
                     'portName': 'out' + str(index)
                 })
 
         elif type == 'router_screen':
             _data['items'] = []
 
-            for index,value in enumerate(screen['router_options']):
+            for index, value in enumerate(screen['router_options']):
                 _data['items'].append({
-                    'index' : index+1,
-                    'text' : value['expression'],
+                    'index': index + 1,
+                    'text': value['expression'],
                     'portName': 'out' + str(index)
                 })
 
             if 'default_next_screen' in screen:
                 _data['items'].append({
-                    'index' : len(screen['router_options'])+1,
-                    'text' : 'Default Route',
-                    'portName':'outDefault'
+                    'index': len(screen['router_options']) + 1,
+                    'text': 'Default Route',
+                    'portName': 'outDefault'
                 })
-
 
         elif type == 'quit_screen':
             _data['items'] = [
-                {'index':1,'portName':'out1','text':self.get_text(screen['text'])}
+                {'index': 1, 'portName': 'out1', 'text': self.get_text(screen['text'])}
             ]
 
         return _data
 
-    def get_links(self,screen,data):
+    def get_links(self, screen, data):
         _data = []
         name = screen
         screen = self.yaml[screen]
@@ -119,9 +159,9 @@ class YamlToGo:
         if type == 'initial_screen':
             _data = [
                 {
-                    'from' : data[name]['key'],
-                    'to' : data[screen['next_screen']]['key'],
-                    'fromPort':'out1'
+                    'from': data[name]['key'],
+                    'to': data[screen['next_screen']]['key'],
+                    'fromPort': 'out1'
                 }
             ]
         elif type == 'input_screen':
@@ -152,9 +192,9 @@ class YamlToGo:
         elif type == 'router_screen':
             if 'default_next_screen' in screen:
                 _data.append({
-                    'from' : data[name]['key'],
-                    'to' : data[screen['default_next_screen']]['key'],
-                    'fromPort' : 'outDefault'
+                    'from': data[name]['key'],
+                    'to': data[screen['default_next_screen']]['key'],
+                    'fromPort': 'outDefault'
                 })
             for index, value in enumerate(screen['router_options']):
                 _data.append({
@@ -162,7 +202,6 @@ class YamlToGo:
                     'to': data[value['next_screen']]['key'],
                     'fromPort': 'out' + str(index)
                 })
-
 
         elif type == 'quit_screen':
             pass
